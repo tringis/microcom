@@ -45,6 +45,7 @@ FILE *g_logfile;
 
 void help(void);
 int baud2code(int baud);
+int parse_format(const char *format, int *mask);
 void copy_from_stdin(int fdout, int fdin, int pause);
 void copy_from_serial(int fdout, int fdin);
 
@@ -260,11 +261,12 @@ int main(int argc, char *argv[])
 	struct termios tio;
 	int baud = 115200, baudCode, optionIndex;
 	int pause_us = 0; /* Pause between characters in us. */
-	int fd, c, flow = 1;
-	char *microcom_env, *logname = NULL;
+	int fd, c, flow = 1, cflags, mask;
+	char *microcom_env, *logname = NULL, *format = NULL;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
+		{"format", 1, 0, 'f'},
 		{"no-flow", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
 		{"pause", 1, 0, 'p'},
@@ -278,12 +280,17 @@ int main(int argc, char *argv[])
 	if (microcom_env)
 		baud = atoi(microcom_env);
 
-	while ((c = getopt_long(argc, argv, "b:Fhp:l:", longOptions, &optionIndex)) != -1)
+	format = getenv("MICROCOM_FORMAT");
+
+	while ((c = getopt_long(argc, argv, "b:f:Fhp:l:", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
 		case 'b':
 			baud = atoi(optarg);
+			break;
+		case 'f':
+			format = optarg;
 			break;
 		case 'F':
 			flow = 0;
@@ -315,14 +322,14 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (logname)
+	if (!format)
+		format = "N81";
+
+	cflags = parse_format(format, &mask);
+	if (cflags == -1)
 	{
-		g_logfile = fopen(logname, "a");
-		if (!g_logfile)
-		{
-			fprintf(stderr, "Cannot open log file %s for writing\n", logname);
-			return 1;
-		}
+		fprintf(stderr, "Bad line format [%s]", format);
+		exit(1);
 	}
 
 	signal(SIGINT, &signal_handler);
@@ -340,9 +347,21 @@ int main(int argc, char *argv[])
 	tio.c_cflag |= CLOCAL | CRTSCTS;
 	if (!flow)
 		tio.c_cflag &= ~CRTSCTS;
+	tio.c_cflag &= ~mask;
+	tio.c_cflag |= cflags;
 	cfsetospeed(&tio, baudCode);
 	cfsetispeed(&tio, baudCode);
 	tcsetattr(fd, TCSAFLUSH, &tio);
+
+	if (logname)
+	{
+		g_logfile = fopen(logname, "a");
+		if (!g_logfile)
+		{
+			fprintf(stderr, "Cannot open log file %s for writing\n", logname);
+			return 1;
+		}
+	}
 
 	if (argc - optind == 1)
 	{
@@ -366,10 +385,11 @@ void help(void)
 {
 	puts("Usage: microcom [options] <device> [cmd] ...\n"
 		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
+		 "  -f FORMAT  --format=FORMAT  Line format [default N81]\n"
 		 "  -F  --no-flow         Disable flow control\n"
-		 "  -h  --help            Help\n"
-		 "  -p us  --pause=us     Pause between characters in ms\n"
-		 "  -l file  --log=file   Log input communication to file");
+		 "  -h  --help            Show help\n"
+		 "  -p US  --pause=US     Pause between characters [microseconds]\n"
+		 "  -l FILE  --log=FILE   Log input communication to file");
 }
 
 int baud2code(int baud)
@@ -384,4 +404,77 @@ int baud2code(int baud)
 	}
 
 	return -1;
+}
+
+int
+parse_format(const char *format, int *mask)
+{
+	char parity_char, size_char, stop_char;
+	int cflags = 0;
+
+	*mask = CSTOPB | PARENB | PARODD | CSIZE;
+
+	/* Two formats are allowed: N81 and N-8-1 */
+	if (strlen(format) == 3)
+	{
+		parity_char = format[0];
+		size_char = format[1];
+		stop_char = format[2];
+	}
+	else if (strlen(format) == 5 && format[1] == '-' && format[3] == '-')
+	{
+		parity_char = format[0];
+		size_char = format[2];
+		stop_char = format[4];
+	}
+	else
+		return -1;
+
+	switch (parity_char)
+	{
+	case 'n':
+	case 'N':
+		break;
+	case 'o':
+	case 'O':
+		cflags |= PARENB | PARODD;
+		break;
+	case 'e':
+	case 'E':
+		cflags |= PARENB;
+		break;
+	default:
+		return -1;
+	}
+
+	switch (size_char)
+	{
+	case '5':
+		cflags |= CS5;
+		break;
+	case '6':
+		cflags |= CS6;
+		break;
+	case '7':
+		cflags |= CS7;
+		break;
+	case '8':
+		cflags |= CS8;
+		break;
+	default:
+		return -1;
+	}
+
+	switch (stop_char)
+	{
+	case '1':
+		break;
+	case '2':
+		cflags |= CSTOPB;
+		break;
+	default:
+		return -1;
+	}
+
+	return cflags;
 }
