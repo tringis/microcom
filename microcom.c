@@ -17,8 +17,8 @@
 #define BUF_SIZE 4096
 
 typedef struct UART_BaudTable {
-        int baud;
-        int code;
+	int baud;
+	int code;
 } UART_BaudTable_t;
 
 jmp_buf env;
@@ -28,25 +28,63 @@ void help(void);
 int baud2code(int baud);
 
 static const UART_BaudTable_t sgUART_BaudTable[] = {
-        {     50,     B50 },
-        {     75,     B75 },
-        {    110,    B110 },
-        {    134,    B134 },
-        {    150,    B150 },
-        {    200,    B200 },
-        {    300,    B300 },
-        {    600,    B600 },
-        {   1200,   B1200 },
-        {   1800,   B1800 },
-        {   2400,   B2400 },
-        {   4800,   B4800 },
-        {   9600,   B9600 },
-        {  19200,  B19200 },
-        {  38400,  B38400 },
-        {  57600,  B57600 },
-        { 115200, B115200 },
-        { 230400, B230400 },
-        { -1, -1 }
+	{      50,      B50 },
+	{      75,      B75 },
+	{     110,     B110 },
+	{     134,     B134 },
+	{     150,     B150 },
+	{     200,     B200 },
+	{     300,     B300 },
+	{     600,     B600 },
+	{    1200,    B1200 },
+	{    1800,    B1800 },
+	{    2400,    B2400 },
+	{    4800,    B4800 },
+	{    9600,    B9600 },
+	{   19200,   B19200 },
+	{   38400,   B38400 },
+	{   57600,   B57600 },
+	{  115200,  B115200 },
+#ifdef B230400
+	{  230400,  B230400 },
+#endif
+#ifdef B460800
+	{  460800,  B460800 },
+#endif
+#ifdef B500000
+	{  500000,  B500000 },
+#endif
+#ifdef B576000
+	{  576000,  B576000 },
+#endif
+#ifdef B921600
+	{  921600,  B921600 },
+#endif
+#ifdef B1000000
+	{ 1000000, B1000000 },
+#endif
+#ifdef B1152000
+	{ 1152000, B1152000 },
+#endif
+#ifdef B1500000
+	{ 1500000, B1500000 },
+#endif
+#ifdef B2000000
+	{ 2000000, B2000000 },
+#endif
+#ifdef B2500000
+	{ 2500000, B2500000 },
+#endif
+#ifdef B3000000
+	{ 3000000, B3000000 },
+#endif
+#ifdef B3500000
+	{ 3500000, B3500000 },
+#endif
+#ifdef B4000000
+	{ 4000000, B4000000 },
+#endif
+	{ -1, -1 }
 };
 
 void signal_handler(int signo)
@@ -54,12 +92,41 @@ void signal_handler(int signo)
 	longjmp(env, signo);
 }
 
+void copy(int fdout, int fdin)
+{
+	char buf[BUF_SIZE];
+	int i, n, m;
+
+	n = read(fdin, buf, BUF_SIZE);
+	if (n > 0)
+	{
+		i = 0;
+		while (i < n)
+		{
+			m = write(fdout, buf, n);
+			if (m < 0)
+			{
+				if (errno == EAGAIN)
+					continue;
+				fprintf(stderr, "Write error [%s]", strerror(errno));
+				exit(1);
+			}
+			i += m;
+		}
+	}
+	else if (n == -1 && errno != EAGAIN)
+	{
+		fprintf(stderr, "Read error [%s]", strerror(errno));
+		exit(1);
+	}
+}
+
+
 void interactive(int fd)
 {
 	struct termios tio;
 	fd_set rfds;
-	int status, n;
-	char buf[BUF_SIZE];
+	int status;
 
 	if (isatty(0))
 	{
@@ -90,27 +157,9 @@ void interactive(int fd)
 		else if (status > 0)
 		{
 			if (FD_ISSET(0, &rfds))
-			{
-				n = read(0, buf, BUF_SIZE);
-				if (n > 0)
-  					write(fd, buf, n);
-				else if (n == -1)
-				{
-					perror("read(0)");
-					break;
-				}
-			}
+				copy(0, fd);
 			if (FD_ISSET(fd, &rfds))
-			{
-				n = read(fd, buf, BUF_SIZE);
-				if (n > 0)
-					write(1, buf, n);
-				else if (n == -1 && errno != EAGAIN)
-				{
-					perror("read(tty)");
-					break;
-				}
-			}
+				copy(fd, 1);
 		}
 	}
 }
@@ -118,8 +167,9 @@ void interactive(int fd)
 int main(int argc, char *argv[])
 {
 	struct termios tio;
-	int baud, baudCode = B115200, optionIndex;
+	int baud = 115200, baudCode, optionIndex;
 	int fd, c, flow = 1;
+	char *sterm_env;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
@@ -130,18 +180,16 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "");
 
+	sterm_env = getenv("STERM");
+	if (sterm_env)
+		baud = atoi(sterm_env);
+
 	while ((c = getopt_long(argc, argv, "b:Fh", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
 		case 'b':
 			baud = atoi(optarg);
-			baudCode = baud2code(baud);
-			if (baudCode == -1)
-			{
-				fprintf(stderr, "Unsupported baud rate (%d)\n", baud);
-				return 1;
-			}
 			break;
 		case 'F':
 			flow = 0;
@@ -160,11 +208,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	baudCode = baud2code(baud);
+	if (baudCode == -1)
+	{
+		fprintf(stderr, "Unsupported baud rate (%d)\n", baud);
+		return 1;
+	}
+
 	signal(SIGINT, &signal_handler);
 	signal(SIGQUIT, &signal_handler);
 	signal(SIGTERM, &signal_handler);
 
-  	fd = open(argv[optind], O_RDWR | O_NONBLOCK);
+	fd = open(argv[optind], O_RDWR | O_NONBLOCK);
 	if (fd == -1)
 	{
 		perror("open");
@@ -187,6 +242,7 @@ int main(int argc, char *argv[])
 	}
 	else
 	{
+		fcntl(fd, F_SETFL, 0); /* Make it blocking again */
 		dup2(fd, 0);
 		dup2(fd, 1);
 		close(fd);
@@ -199,7 +255,7 @@ int main(int argc, char *argv[])
 void help(void)
 {
 	puts("Usage: sterm [options] <device> [cmd] ...\n"
-		 "  -b BAUD  --baud=BAUD  Set baud rate [115200]\n"
+		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
 		 "  -F  --no-flow         Disable flow control\n"
 		 "  -h  --help            Help");
 }
