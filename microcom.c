@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.9"
+#define VERSION_STRING "microcom version 0.9.10"
 
 #define BUF_SIZE 4096
 
@@ -151,7 +151,7 @@ void read_buffer(int fd, char *buf, int *end, int buf_size)
         *end += n;
 }
 
-void interactive(int fd, int pause)
+void interactive(int fd)
 {
 	struct termios tio;
     char serial_to_stdout_buf[BUF_SIZE];
@@ -262,7 +262,6 @@ int main(int argc, char *argv[])
 {
 	struct termios tio;
 	int baud = 115200, baudCode, optionIndex;
-	int pause_us = 0; /* Pause between characters in us. */
 	int fd, c, cflags, mask, ctsrts = 1, xonxoff = 0;
 	char *microcom_env, *logname = NULL, *format = NULL;
 	struct option longOptions[] =
@@ -271,7 +270,6 @@ int main(int argc, char *argv[])
 		{"format", 1, 0, 'f'},
 		{"flow-control", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
-		{"pause", 1, 0, 'p'},
 		{"log", 1, 0, 'l'},
 		{"version", 0, 0, 'V'},
 		{0, 0, 0, 0}
@@ -326,9 +324,6 @@ int main(int argc, char *argv[])
 		case 'h':
 			help();
 			exit(1);
-		case 'p':
-			pause_us = atoi(optarg);
-			break;
 		case 'l':
 			logname = optarg;
 			break;
@@ -398,7 +393,7 @@ int main(int argc, char *argv[])
 
 	if (argc - optind == 1)
 	{
-		interactive(fd, pause_us);
+		interactive(fd);
 		tcflush(fd, TCIOFLUSH);
 		close(fd);
 	}
@@ -424,7 +419,6 @@ void help(void)
 		 "                          Configure flow control, where MODE is none, hardware,\n"
 		 "                          xonxoff or both. [hardware]\n"
 		 "  -h, --help              Show help.\n"
-		 "  -p US, --pause=US       Pause between characters in microseconds. [0]\n"
 		 "  -l FILE, --log=FILE     Log input communication to file.");
 }
 
