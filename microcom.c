@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
 
 	if (argc - optind < 1)
 	{
-		fputs("Usage: sterm [options] <device> [cmd] ...\n", stderr);
+		help();
 		return 1;
 	}
 
@@ -198,8 +198,9 @@ int main(int argc, char *argv[])
 void help(void)
 {
 	puts("Usage: sterm [options] <device> [cmd] ...\n"
-		 "  -b BAUD  --baud=BAUD  Set baud rate\n"
-		 "  -h  --help  Help");
+		 "  -b BAUD  --baud=BAUD  Set baud rate [115200]\n"
+		 "  -F  --no-flow         Disable flow control\n"
+		 "  -h  --help            Help");
 }
 
 int baud2code(int baud)
