@@ -204,10 +204,10 @@ void interactive(int fd, int pause)
 		{
 			/* Is stdin readable? */
 			if (fds[0].revents & (POLLIN | POLLERR))
-				copy(fds[1].fd, fds[0].fd, pause);
+				copy(fd, fds[0].fd, pause);
 			/* Is the serial port readable? */
 			if (fds[1].revents & (POLLIN | POLLERR))
-				copy(fds[0].fd, fds[1].fd, 0);
+				copy(1, fds[1].fd, 0);
 		}
 	}
 }
