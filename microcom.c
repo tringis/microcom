@@ -119,17 +119,18 @@ int main(int argc, char *argv[])
 {
 	struct termios tio;
 	int baud, baudCode = B115200, optionIndex;
-	int fd, c;
+	int fd, c, flow = 1;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
+		{"no-flow", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
 	setlocale(LC_ALL, "");
 
-	while ((c = getopt_long(argc, argv, "b:h", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:fh", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
@@ -141,6 +142,9 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Unsupported baud rate (%d)\n", baud);
 				return 1;
 			}
+			break;
+		case 'F':
+			flow = 0;
 			break;
 		case 'h':
 			help();
@@ -169,6 +173,8 @@ int main(int argc, char *argv[])
 	tcgetattr(fd, &tio);
 	cfmakeraw(&tio);
 	tio.c_cflag |= CLOCAL | CRTSCTS;
+	if (!flow)
+		tio.c_cflag &= ~CRTSCTS;
 	cfsetospeed(&tio, baudCode);
 	cfsetispeed(&tio, baudCode);
 	tcsetattr(fd, TCSAFLUSH, &tio);
