@@ -7,7 +7,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
+#include <sys/poll.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <string.h>
@@ -92,6 +92,16 @@ void signal_handler(int signo)
 	longjmp(env, signo);
 }
 
+void wait_for_write(int fd)
+{
+	struct pollfd pfd[1];
+
+	pfd[0].fd = fd;
+	pfd[0].events = POLLOUT;
+
+	poll(pfd, 1, -1);
+}
+
 void copy(int fdout, int fdin)
 {
 	char buf[BUF_SIZE];
@@ -107,7 +117,10 @@ void copy(int fdout, int fdin)
 			if (m < 0)
 			{
 				if (errno == EAGAIN)
+				{
+					wait_for_write(fdout);
 					continue;
+				}
 				fprintf(stderr, "Write error [%s]", strerror(errno));
 				exit(1);
 			}
@@ -125,7 +138,7 @@ void copy(int fdout, int fdin)
 void interactive(int fd)
 {
 	struct termios tio;
-	fd_set rfds;
+	struct pollfd fds[2];
 	int status;
 
 	if (isatty(0))
@@ -148,18 +161,22 @@ void interactive(int fd)
 
 	for (;;)
 	{
-		FD_ZERO(&rfds);
-		FD_SET(0, &rfds);
-		FD_SET(fd, &rfds);
-		status = select(fd+1, &rfds, NULL, NULL, NULL);
+		fds[0].fd = 0;
+		fds[0].events = POLLIN;
+		fds[1].fd = fd;
+		fds[1].events = POLLIN;
+		status = poll(fds, 2, -1);
 		if (status == -1)
-			perror("select");
+		{
+			fprintf(stderr, "Poll failed [%s]", strerror(errno));
+			exit(1);
+		}
 		else if (status > 0)
 		{
-			if (FD_ISSET(0, &rfds))
-				copy(0, fd);
-			if (FD_ISSET(fd, &rfds))
-				copy(fd, 1);
+			if (fds[0].revents & (POLLIN | POLLERR))
+				copy(fds[1].fd, fds[0].fd);
+			if (fds[1].revents & (POLLIN | POLLERR))
+				copy(fds[0].fd, fds[1].fd);
 		}
 	}
 }
