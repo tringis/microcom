@@ -21,8 +21,8 @@ typedef struct UART_BaudTable {
 	int code;
 } UART_BaudTable_t;
 
-jmp_buf env;
-struct termios saved_stdin_attr;
+jmp_buf g_env;
+struct termios g_saved_stdin_attr;
 
 void help(void);
 int baud2code(int baud);
@@ -89,7 +89,7 @@ static const UART_BaudTable_t sgUART_BaudTable[] = {
 
 void signal_handler(int signo)
 {
-	longjmp(env, signo);
+	longjmp(g_env, signo);
 }
 
 void wait_for_write(int fd)
@@ -102,7 +102,7 @@ void wait_for_write(int fd)
 	poll(pfd, 1, -1);
 }
 
-void copy(int fdout, int fdin)
+void copy(int fdout, int fdin, int pause)
 {
 	char buf[BUF_SIZE];
 	int i, n, m;
@@ -113,7 +113,7 @@ void copy(int fdout, int fdin)
 		i = 0;
 		while (i < n)
 		{
-			m = write(fdout, buf, n);
+			m = write(fdout, buf + i, pause ? 1 : n - i);
 			if (m < 0)
 			{
 				if (errno == EAGAIN)
@@ -123,6 +123,11 @@ void copy(int fdout, int fdin)
 				}
 				fprintf(stderr, "Write error [%s]", strerror(errno));
 				exit(1);
+			}
+			if (pause)
+			{
+				usleep(pause);
+				copy(fdin, fdout, 0);
 			}
 			i += m;
 		}
@@ -135,7 +140,7 @@ void copy(int fdout, int fdin)
 }
 
 
-void interactive(int fd)
+void interactive(int fd, int pause)
 {
 	struct termios tio;
 	struct pollfd fds[2];
@@ -143,18 +148,18 @@ void interactive(int fd)
 
 	if (isatty(0))
 	{
-		tcgetattr(0, &saved_stdin_attr);
-		memcpy(&tio, &saved_stdin_attr, sizeof(tio));
+		tcgetattr(0, &g_saved_stdin_attr);
+		memcpy(&tio, &g_saved_stdin_attr, sizeof(tio));
 		tio.c_iflag &= ~ICRNL;
 		tio.c_lflag &= ~(ICANON | ECHO);
 		tio.c_lflag |= ISIG;
 		tcsetattr(0, TCSAFLUSH, &tio);
 	}
 
-	if (setjmp(env) != 0)
+	if (setjmp(g_env) != 0)
 	{
 		if (isatty(0))
-			tcsetattr(0, TCSAFLUSH, &saved_stdin_attr);
+			tcsetattr(0, TCSAFLUSH, &g_saved_stdin_attr);
 		puts("Bye!");
 		return;
 	}
@@ -173,10 +178,12 @@ void interactive(int fd)
 		}
 		else if (status > 0)
 		{
+			/* Is stdin readable? */
 			if (fds[0].revents & (POLLIN | POLLERR))
-				copy(fds[1].fd, fds[0].fd);
+				copy(fds[1].fd, fds[0].fd, pause);
+			/* Is the serial port readable? */
 			if (fds[1].revents & (POLLIN | POLLERR))
-				copy(fds[0].fd, fds[1].fd);
+				copy(fds[0].fd, fds[1].fd, 0);
 		}
 	}
 }
@@ -185,6 +192,7 @@ int main(int argc, char *argv[])
 {
 	struct termios tio;
 	int baud = 115200, baudCode, optionIndex;
+	int pause_us = 0; /* Pause between characters in us. */
 	int fd, c, flow = 1;
 	char *sterm_env;
 	struct option longOptions[] =
@@ -192,6 +200,7 @@ int main(int argc, char *argv[])
 		{"baud", 1, 0, 'b'},
 		{"no-flow", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
+		{"pause", 1, 0, 'p'},
 		{0, 0, 0, 0}
 	};
 
@@ -201,7 +210,7 @@ int main(int argc, char *argv[])
 	if (sterm_env)
 		baud = atoi(sterm_env);
 
-	while ((c = getopt_long(argc, argv, "b:Fh", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:Fhp:", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
@@ -214,6 +223,9 @@ int main(int argc, char *argv[])
 		case 'h':
 			help();
 			exit(1);
+		case 'p':
+			pause_us = atoi(optarg);
+			break;
 		default:
 			printf ("?? getopt returned character code 0%o ??\n", c);
 		}
@@ -253,7 +265,7 @@ int main(int argc, char *argv[])
 
 	if (argc - optind == 1)
 	{
-		interactive(fd);
+		interactive(fd, pause_us);
 		tcflush(fd, TCIOFLUSH);
 		close(fd);
 	}
@@ -274,7 +286,8 @@ void help(void)
 	puts("Usage: sterm [options] <device> [cmd] ...\n"
 		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
 		 "  -F  --no-flow         Disable flow control\n"
-		 "  -h  --help            Help");
+		 "  -h  --help            Help\n"
+		 "  -p us  --pause=us     Pause between characters in ms");
 }
 
 int baud2code(int baud)
