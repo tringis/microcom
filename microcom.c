@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
 		dup2(fd, 0);
 		dup2(fd, 1);
 		close(fd);
-		execvp(argv[2], &argv[2]);
+		execvp(argv[optind + 1], &argv[optind + 1]);
 	}
 
 	return 0;
