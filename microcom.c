@@ -117,7 +117,8 @@ void wait_for_write(int fd)
 	pfd[0].fd = fd;
 	pfd[0].events = POLLOUT;
 
-	poll(pfd, 1, -1);
+	while (poll(pfd, 1, -1) == -1 && errno == EINTR)
+		;
 }
 
 void copy(int fdout, int fdin, int pause)
@@ -134,6 +135,8 @@ void copy(int fdout, int fdin, int pause)
 			m = write(fdout, buf + i, pause ? 1 : n - i);
 			if (m < 0)
 			{
+				if (errno == EINTR)
+					continue;
 				if (errno == EAGAIN)
 				{
 					wait_for_write(fdout);
@@ -145,6 +148,7 @@ void copy(int fdout, int fdin, int pause)
 			if (pause)
 			{
 				usleep(pause);
+				/* Copy in the other direction without pause */
 				copy(fdin, fdout, 0);
 			}
 			i += m;
@@ -191,6 +195,8 @@ void interactive(int fd, int pause)
 		status = poll(fds, 2, -1);
 		if (status == -1)
 		{
+			if (errno == EINTR)
+				continue;
 			fprintf(stderr, "Poll failed [%s]", strerror(errno));
 			exit(1);
 		}
