@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.8"
+#define VERSION_STRING "microcom version 0.9.9"
 
 #define BUF_SIZE 4096
 
@@ -48,8 +48,8 @@ FILE *g_logfile;
 void help(void);
 int baud2code(int baud);
 int parse_format(const char *format, int *mask);
-void copy_from_stdin(int fdout, int fdin, int pause);
-void copy_from_serial(int fdout, int fdin);
+void write_buffer(int fd, const char *buf, int *pos, int *end);
+void read_buffer(int fd, char *buf, int *end, int buf_size);
 
 static const UART_BaudTable_t sgUART_BaudTable[] = {
 	{      50,      B50 },
@@ -116,102 +116,48 @@ void signal_handler(int signo)
 	longjmp(g_env, signo);
 }
 
-void wait_for_write(int fd)
+void write_buffer(int fd, const char *buf, int *pos, int *end)
 {
-	struct pollfd pfd[1];
+    int n;
 
-	pfd[0].fd = fd;
-	pfd[0].events = POLLOUT;
-
-	while (poll(pfd, 1, -1) == -1 && errno == EINTR)
-		;
+    n = write(fd, buf + *pos, *end - *pos);
+    if (n < 0 && errno != EINTR && errno != EAGAIN)
+    {
+        fprintf(stderr, "Write error [%s]", strerror(errno));
+        exit(1);
+    }
+    else if (n > 0)
+    {
+        *pos += n;
+        if (*pos == *end)
+        {
+            *pos = 0;
+            *end = 0;
+        }
+    }
 }
 
-void copy_from_stdin(int fdout, int fdin, int pause)
+void read_buffer(int fd, char *buf, int *end, int buf_size)
 {
-	char buf[BUF_SIZE];
-	int i, n, m;
+    int n;
 
-	n = read(fdin, buf, BUF_SIZE);
-	if (n > 0)
-	{
-		i = 0;
-		while (i < n)
-		{
-			m = write(fdout, buf + i, pause ? 1 : n - i);
-			if (m < 0)
-			{
-				if (errno == EINTR)
-					continue;
-				if (errno == EAGAIN)
-				{
-					wait_for_write(fdout);
-					continue;
-				}
-				fprintf(stderr, "Write error [%s]", strerror(errno));
-				exit(1);
-			}
-			if (pause)
-			{
-				usleep(pause);
-				/* Copy from the serial port */
-				copy_from_serial(fdin, fdout);
-			}
-			i += m;
-		}
-	}
-	else if (n == -1 && errno != EAGAIN)
-	{
-		fprintf(stderr, "Read error [%s]", strerror(errno));
-		exit(1);
-	}
+    n = read(fd, buf + *end, buf_size - *end);
+    if (n < 0 && errno != EINTR && errno != EAGAIN)
+    {
+        fprintf(stderr, "Read error [%s]", strerror(errno));
+        exit(1);
+    }
+    else if (n > 0)
+        *end += n;
 }
-
-
-void copy_from_serial(int fdout, int fdin)
-{
-	char buf[BUF_SIZE];
-	int i, n, m;
-
-	n = read(fdin, buf, BUF_SIZE);
-	if (n > 0)
-	{
-		i = 0;
-		while (i < n)
-		{
-			m = write(fdout, buf + i, n - i);
-			if (m < 0)
-			{
-				if (errno == EINTR)
-					continue;
-				if (errno == EAGAIN)
-				{
-					wait_for_write(fdout);
-					continue;
-				}
-				fprintf(stderr, "Write error [%s]", strerror(errno));
-				exit(1);
-			}
-			if (g_logfile)
-			{
-				fwrite(buf, m, 1, g_logfile);
-				fflush(g_logfile);
-			}
-			i += m;
-		}
-	}
-	else if (n == -1 && errno != EAGAIN)
-	{
-		fprintf(stderr, "Read error [%s]", strerror(errno));
-		exit(1);
-	}
-}
-
 
 void interactive(int fd, int pause)
 {
 	struct termios tio;
-	struct pollfd fds[2];
+    char serial_to_stdout_buf[BUF_SIZE];
+    int serial_to_stdout_pos = 0, serial_to_stdout_end = 0;
+    char stdin_to_serial_buf[BUF_SIZE];
+    int stdin_to_serial_pos = 0, stdin_to_serial_end = 0;
 	int status;
 
 	if (isatty(0))
@@ -234,11 +180,42 @@ void interactive(int fd, int pause)
 
 	for (;;)
 	{
-		fds[0].fd = STDIN_FILENO;
-		fds[0].events = POLLIN;
-		fds[1].fd = fd;
-		fds[1].events = POLLIN;
-		status = poll(fds, 2, -1);
+        int stdin_read_index = -1, stdout_write_index = -1;
+        int serial_read_index = -1, serial_write_index = -1;
+        struct pollfd fds[4];
+        int n = 0;
+
+        /* Anything to write to stdout? */
+        if (serial_to_stdout_end - serial_to_stdout_pos > 0)
+        {
+            fds[n].fd = STDOUT_FILENO;
+            fds[n].events = POLLOUT;
+            stdout_write_index = n++;
+        }
+        /* Anything to write to the serial port? */
+        if (stdin_to_serial_end - stdin_to_serial_pos > 0)
+        {
+            fds[n].fd = fd;
+            fds[n].events = POLLOUT;
+            serial_write_index = n++;
+        }
+        /* Any space to read from stdin? */
+        if (stdin_to_serial_end < BUF_SIZE)
+        {
+            fds[n].fd = STDIN_FILENO;
+            fds[n].events = POLLIN;
+            stdin_read_index = n++;
+        }
+        /* Any space to read from the serial port? */
+        if (serial_to_stdout_end < BUF_SIZE)
+        {
+            fds[n].fd = fd;
+            fds[n].events = POLLIN;
+            serial_read_index = n++;
+        }
+        assert(n > 0);
+
+		status = poll(fds, n, -1);
 		if (status == -1)
 		{
 			if (errno == EINTR)
@@ -248,12 +225,35 @@ void interactive(int fd, int pause)
 		}
 		else if (status > 0)
 		{
-			/* Is stdin readable? */
-			if (fds[0].revents & (POLLIN | POLLERR))
-				copy_from_stdin(fd, STDIN_FILENO, pause);
-			/* Is the serial port readable? */
-			if (fds[1].revents & (POLLIN | POLLERR))
-				copy_from_serial(STDOUT_FILENO, fd);
+            /* Write to stdout if possible */
+            if (stdout_write_index >= 0 &&
+                fds[stdout_write_index].revents & (POLLOUT | POLLERR))
+            {
+                write_buffer(STDOUT_FILENO, serial_to_stdout_buf,
+                             &serial_to_stdout_pos, &serial_to_stdout_end);
+            }
+            /* Write to the serial port if possible */
+            if (serial_write_index >= 0 &&
+                fds[serial_write_index].revents & (POLLOUT | POLLERR))
+            {
+                write_buffer(fd, stdin_to_serial_buf,
+                             &stdin_to_serial_pos, &stdin_to_serial_end);
+            }
+
+            /* Read from stdin port if possible */
+            if (stdin_read_index >= 0 &&
+                fds[stdin_read_index].revents & (POLLIN | POLLERR))
+            {
+                read_buffer(STDIN_FILENO, stdin_to_serial_buf,
+                            &stdin_to_serial_end, BUF_SIZE);
+            }
+            /* Read from the serial port if possible */
+            if (serial_read_index >= 0 &&
+                fds[serial_read_index].revents & (POLLIN | POLLERR))
+            {
+                read_buffer(fd, serial_to_stdout_buf, &serial_to_stdout_end,
+                            BUF_SIZE);
+            }
 		}
 	}
 }
@@ -263,13 +263,13 @@ int main(int argc, char *argv[])
 	struct termios tio;
 	int baud = 115200, baudCode, optionIndex;
 	int pause_us = 0; /* Pause between characters in us. */
-	int fd, c, flow = 1, cflags, mask;
+	int fd, c, cflags, mask, ctsrts = 1, xonxoff = 0;
 	char *microcom_env, *logname = NULL, *format = NULL;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
 		{"format", 1, 0, 'f'},
-		{"no-flow", 1, 0, 'F'},
+		{"flow-control", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
 		{"pause", 1, 0, 'p'},
 		{"log", 1, 0, 'l'},
@@ -285,7 +285,8 @@ int main(int argc, char *argv[])
 
 	format = getenv("MICROCOM_FORMAT");
 
-	while ((c = getopt_long(argc, argv, "b:f:Fhp:l:V", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:f:F:hp:l:V",
+							longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
@@ -296,7 +297,31 @@ int main(int argc, char *argv[])
 			format = optarg;
 			break;
 		case 'F':
-			flow = 0;
+			if (strcasecmp(optarg, "none") == 0)
+			{
+				ctsrts = 0;
+				xonxoff = 0;
+			}
+			else if (strcasecmp(optarg, "hardware") == 0)
+			{
+				ctsrts = 1;
+				xonxoff = 0;
+			}
+			else if (strcasecmp(optarg, "xonxoff") == 0)
+			{
+				ctsrts = 0;
+				xonxoff = 1;
+			}
+			else if (strcasecmp(optarg, "both") == 0)
+			{
+				ctsrts = 1;
+				xonxoff = 1;
+			}
+			else
+			{
+				fprintf(stderr, "Unknown flow control mode ('%s')\n", optarg);
+				return 1;
+			}
 			break;
 		case 'h':
 			help();
@@ -351,8 +376,10 @@ int main(int argc, char *argv[])
 	tcgetattr(fd, &tio);
 	cfmakeraw(&tio);
 	tio.c_cflag |= CLOCAL | CRTSCTS;
-	if (!flow)
+	if (!ctsrts)
 		tio.c_cflag &= ~CRTSCTS;
+	if (xonxoff)
+		tio.c_iflag |= IXON | IXOFF;
 	tio.c_cflag &= ~mask;
 	tio.c_cflag |= cflags;
 	cfsetospeed(&tio, baudCode);
@@ -389,13 +416,16 @@ int main(int argc, char *argv[])
 
 void help(void)
 {
-	puts("Usage: microcom [options] <device> [cmd] ...\n"
-		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
-		 "  -f FORMAT  --format=FORMAT  Line format [default N81]\n"
-		 "  -F  --no-flow         Disable flow control\n"
-		 "  -h  --help            Show help\n"
-		 "  -p US  --pause=US     Pause between characters [microseconds]\n"
-		 "  -l FILE  --log=FILE   Log input communication to file");
+	puts("Usage: microcom [options] <device> [command] [argument] ...\n"
+		 "  -b BAUD, --baud=BAUD    Set baud rate. [115200]\n"
+		 "  -f FORMAT, --format=FORMAT\n"
+		 "                          Line format as a three character combination. [N81]\n"
+		 "  -F MODE, --flow-control=MODE\n"
+		 "                          Configure flow control, where MODE is none, hardware,\n"
+		 "                          xonxoff or both. [hardware]\n"
+		 "  -h, --help              Show help.\n"
+		 "  -p US, --pause=US       Pause between characters in microseconds. [0]\n"
+		 "  -l FILE, --log=FILE     Log input communication to file.");
 }
 
 int baud2code(int baud)
