@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
 	int baud = 115200, baudCode, optionIndex;
 	int pause_us = 0; /* Pause between characters in us. */
 	int fd, c, flow = 1;
-	char *sterm_env;
+	char *microcom_env;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
@@ -206,9 +206,9 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "");
 
-	sterm_env = getenv("STERM");
-	if (sterm_env)
-		baud = atoi(sterm_env);
+	microcom_env = getenv("MICROCOM");
+	if (microcom_env)
+		baud = atoi(microcom_env);
 
 	while ((c = getopt_long(argc, argv, "b:Fhp:", longOptions, &optionIndex)) != -1)
 	{
@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
 
 void help(void)
 {
-	puts("Usage: sterm [options] <device> [cmd] ...\n"
+	puts("Usage: microcom [options] <device> [cmd] ...\n"
 		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
 		 "  -F  --no-flow         Disable flow control\n"
 		 "  -h  --help            Help\n"

@@ -6,15 +6,15 @@ BINDIR = $(PREFIX)/bin
 MANDIR = $(PREFIX)/share/man
 
 .PHONY: all
-all: sterm
+all: microcom
 
 .PHONY: clean
 clean:
-	rm -f sterm sterm.o
+	rm -f microcom microcom.o
 
 .PHONY: install
 install: all
-	install -s sterm $(BINDIR)
-	install sterm.1 $(MANDIR)/man1
+	install -s microcom $(BINDIR)
+	install microcom.1 $(MANDIR)/man1
 
-sterm: sterm.o
+microcom: microcom.o

@@ -1,17 +1,17 @@
 .\" Process this file with
-.\" groff -man -Tascii sterm.1
+.\" groff -man -Tascii microcom.1
 .\"
-.TH STERM 1 "SEPTEMBER 2002" Linux "User Manuals"
+.TH MICROCOM 1 "SEPTEMBER 2002" Linux "User Manuals"
 .SH NAME
-sterm \- Simple serial port terminal program
+microcom \- Simple serial port terminal program
 .SH SYNOPSIS
-.B sterm
+.B microcom
 .BI [ options ]
 .BI < device >
 .BI [ cmd ]
 .B ...
 .SH DESCRIPTION
-.B sterm
+.B microcom
 is a simple serial port connection tool. It does not implement
 terminal emulation or special modem support, but is very efficiant
 when you need a serial connection to a device connected to the serial
@@ -35,15 +35,15 @@ microseconds between all characters sent to the serial port.
 .SH EXAMPLES
 To connect to /dev/ttyS0 at 115200 baud with hardware flow control:
 .IP
-sterm /dev/ttyS0
+microcom /dev/ttyS0
 .LP
 To connect to /dev/ttyS0 at 9600 baud with no flow control:
 .IP
-sterm -b 9600 -F /dev/ttyS0
+microcom -b 9600 -F /dev/ttyS0
 .LP
 To send the file foo.bar on the serial port at 38400 baud:
 .IP
-sterm -b 38400 -F /dev/ttyS0 cat foo.bar
+microcom -b 38400 -F /dev/ttyS0 cat foo.bar
 .LP
 This works since the standard output of the
 .I cat
