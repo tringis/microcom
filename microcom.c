@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
 
 	format = getenv("MICROCOM_FORMAT");
 
-	while ((c = getopt_long(argc, argv, "b:f:F:hp:l:V",
+	while ((c = getopt_long(argc, argv, "b:f:F:hl:V",
 							longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
