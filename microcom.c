@@ -41,9 +41,12 @@ typedef struct UART_BaudTable {
 
 jmp_buf g_env;
 struct termios g_saved_stdin_attr;
+FILE *g_logfile;
 
 void help(void);
 int baud2code(int baud);
+void copy_from_stdin(int fdout, int fdin, int pause);
+void copy_from_serial(int fdout, int fdin);
 
 static const UART_BaudTable_t sgUART_BaudTable[] = {
 	{      50,      B50 },
@@ -121,7 +124,7 @@ void wait_for_write(int fd)
 		;
 }
 
-void copy(int fdout, int fdin, int pause)
+void copy_from_stdin(int fdout, int fdin, int pause)
 {
 	char buf[BUF_SIZE];
 	int i, n, m;
@@ -148,8 +151,48 @@ void copy(int fdout, int fdin, int pause)
 			if (pause)
 			{
 				usleep(pause);
-				/* Copy in the other direction without pause */
-				copy(fdin, fdout, 0);
+				/* Copy from the serial port */
+				copy_from_serial(fdin, fdout);
+			}
+			i += m;
+		}
+	}
+	else if (n == -1 && errno != EAGAIN)
+	{
+		fprintf(stderr, "Read error [%s]", strerror(errno));
+		exit(1);
+	}
+}
+
+
+void copy_from_serial(int fdout, int fdin)
+{
+	char buf[BUF_SIZE];
+	int i, n, m;
+
+	n = read(fdin, buf, BUF_SIZE);
+	if (n > 0)
+	{
+		i = 0;
+		while (i < n)
+		{
+			m = write(fdout, buf + i, n - i);
+			if (m < 0)
+			{
+				if (errno == EINTR)
+					continue;
+				if (errno == EAGAIN)
+				{
+					wait_for_write(fdout);
+					continue;
+				}
+				fprintf(stderr, "Write error [%s]", strerror(errno));
+				exit(1);
+			}
+			if (g_logfile)
+			{
+				fwrite(buf, m, 1, g_logfile);
+				fflush(g_logfile);
 			}
 			i += m;
 		}
@@ -188,7 +231,7 @@ void interactive(int fd, int pause)
 
 	for (;;)
 	{
-		fds[0].fd = 0;
+		fds[0].fd = STDIN_FILENO;
 		fds[0].events = POLLIN;
 		fds[1].fd = fd;
 		fds[1].events = POLLIN;
@@ -204,10 +247,10 @@ void interactive(int fd, int pause)
 		{
 			/* Is stdin readable? */
 			if (fds[0].revents & (POLLIN | POLLERR))
-				copy(fd, fds[0].fd, pause);
+				copy_from_stdin(fd, STDIN_FILENO, pause);
 			/* Is the serial port readable? */
 			if (fds[1].revents & (POLLIN | POLLERR))
-				copy(1, fds[1].fd, 0);
+				copy_from_serial(STDOUT_FILENO, fd);
 		}
 	}
 }
@@ -218,13 +261,14 @@ int main(int argc, char *argv[])
 	int baud = 115200, baudCode, optionIndex;
 	int pause_us = 0; /* Pause between characters in us. */
 	int fd, c, flow = 1;
-	char *microcom_env;
+	char *microcom_env, *logname = NULL;
 	struct option longOptions[] =
 	{
 		{"baud", 1, 0, 'b'},
 		{"no-flow", 1, 0, 'F'},
 		{"help", 0, 0, 'h'},
 		{"pause", 1, 0, 'p'},
+		{"log", 1, 0, 'l'},
 		{0, 0, 0, 0}
 	};
 
@@ -234,7 +278,7 @@ int main(int argc, char *argv[])
 	if (microcom_env)
 		baud = atoi(microcom_env);
 
-	while ((c = getopt_long(argc, argv, "b:Fhp:", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:Fhp:l:", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
@@ -249,6 +293,9 @@ int main(int argc, char *argv[])
 			exit(1);
 		case 'p':
 			pause_us = atoi(optarg);
+			break;
+		case 'l':
+			logname = optarg;
 			break;
 		default:
 			printf ("?? getopt returned character code 0%o ??\n", c);
@@ -266,6 +313,16 @@ int main(int argc, char *argv[])
 	{
 		fprintf(stderr, "Unsupported baud rate (%d)\n", baud);
 		return 1;
+	}
+
+	if (logname)
+	{
+		g_logfile = fopen(logname, "a");
+		if (!g_logfile)
+		{
+			fprintf(stderr, "Cannot open log file %s for writing\n", logname);
+			return 1;
+		}
 	}
 
 	signal(SIGINT, &signal_handler);
@@ -311,7 +368,8 @@ void help(void)
 		 "  -b BAUD  --baud=BAUD  Set baud rate [default 115200]\n"
 		 "  -F  --no-flow         Disable flow control\n"
 		 "  -h  --help            Help\n"
-		 "  -p us  --pause=us     Pause between characters in ms");
+		 "  -p us  --pause=us     Pause between characters in ms\n"
+		 "  -l file  --log=file   Log input communication to file");
 }
 
 int baud2code(int baud)
