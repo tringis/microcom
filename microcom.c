@@ -32,6 +32,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#define VERSION_STRING "microcom version 0.9.8"
+
 #define BUF_SIZE 4096
 
 typedef struct UART_BaudTable {
@@ -271,6 +273,7 @@ int main(int argc, char *argv[])
 		{"help", 0, 0, 'h'},
 		{"pause", 1, 0, 'p'},
 		{"log", 1, 0, 'l'},
+		{"version", 0, 0, 'V'},
 		{0, 0, 0, 0}
 	};
 
@@ -282,7 +285,7 @@ int main(int argc, char *argv[])
 
 	format = getenv("MICROCOM_FORMAT");
 
-	while ((c = getopt_long(argc, argv, "b:f:Fhp:l:", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:f:Fhp:l:V", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
@@ -304,6 +307,9 @@ int main(int argc, char *argv[])
 		case 'l':
 			logname = optarg;
 			break;
+		case 'V':
+			puts(VERSION_STRING);
+			return 0;
 		default:
 			printf ("?? getopt returned character code 0%o ??\n", c);
 		}
