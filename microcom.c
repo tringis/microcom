@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "");
 
-	while ((c = getopt_long(argc, argv, "b:fh", longOptions, &optionIndex)) != -1)
+	while ((c = getopt_long(argc, argv, "b:Fh", longOptions, &optionIndex)) != -1)
 	{
 		switch (c)
 		{
