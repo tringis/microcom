@@ -182,6 +182,7 @@ int main(int argc, char *argv[])
 	if (argc - optind == 1)
 	{
 		interactive(fd);
+		tcflush(fd, TCIOFLUSH);
 		close(fd);
 	}
 	else
