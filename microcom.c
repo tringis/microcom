@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.12"
+#define VERSION_STRING "microcom version 0.9.13"
 
 #define BUF_SIZE 4096
 
@@ -50,6 +50,8 @@ int baud2code(int baud);
 int parse_format(const char *format, int *mask);
 void write_buffer(int fd, const char *buf, int *pos, int *end);
 void read_buffer(int fd, char *buf, int *end, int buf_size);
+void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
+                      char *echo_buf, int *echo_end, int echo_buf_size);
 
 static const UART_BaudTable_t sgUART_BaudTable[] = {
     {      50,      B50 },
@@ -151,13 +153,46 @@ void read_buffer(int fd, char *buf, int *end, int buf_size)
         *end += n;
 }
 
-void interactive(int fd)
+static int minimum(int x, int y)
+{
+    return y < x ? y : x;
+}
+
+void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
+                      char *echo_buf, int *echo_end, int echo_buf_size)
+{
+    int n;
+
+    n = read(fd, buf + *end,
+             minimum(buf_size - *end, echo_buf_size - *echo_end));
+    if (n < 0 && errno != EINTR && errno != EAGAIN)
+    {
+        fprintf(stderr, "Read error [%s]", strerror(errno));
+        exit(1);
+    }
+    else if (n > 0)
+    {
+        int i;
+
+        for (i = 0; i < n; ++i)
+        {
+            echo_buf[*echo_end + i] =
+                buf[*end + i] == '\r' ? '\n' : buf[*end + i];
+        }
+        *end += n;
+        *echo_end += n;
+    }
+}
+
+void interactive(int fd, int local_echo)
 {
     struct termios tio;
     char serial_to_stdout_buf[BUF_SIZE];
     int serial_to_stdout_pos = 0, serial_to_stdout_end = 0;
     char stdin_to_serial_buf[BUF_SIZE];
     int stdin_to_serial_pos = 0, stdin_to_serial_end = 0;
+    char local_echo_buf[BUF_SIZE];
+    int local_echo_pos = 0, local_echo_end = 0;
     int status;
 
     if (isatty(0))
@@ -187,7 +222,8 @@ void interactive(int fd)
         int n = 0;
 
         /* Anything to write to stdout? */
-        if (serial_to_stdout_end - serial_to_stdout_pos > 0)
+        if (serial_to_stdout_end - serial_to_stdout_pos > 0 ||
+            local_echo_end - local_echo_pos > 0)
         {
             fds[n].fd = STDOUT_FILENO;
             fds[n].events = POLLOUT;
@@ -230,6 +266,8 @@ void interactive(int fd)
             if (stdout_write_index >= 0 &&
                 fds[stdout_write_index].revents & (POLLOUT | POLLERR))
             {
+                write_buffer(STDOUT_FILENO, local_echo_buf,
+                             &local_echo_pos, &local_echo_end);
                 write_buffer(STDOUT_FILENO, serial_to_stdout_buf,
                              &serial_to_stdout_pos, &serial_to_stdout_end);
             }
@@ -245,8 +283,18 @@ void interactive(int fd)
             if (stdin_read_index >= 0 &&
                 fds[stdin_read_index].revents & (POLLIN | POLLERR))
             {
-                read_buffer(STDIN_FILENO, stdin_to_serial_buf,
-                            &stdin_to_serial_end, BUF_SIZE);
+                if (local_echo)
+                {
+                    read_buffer_echo(STDIN_FILENO, stdin_to_serial_buf,
+                                     &stdin_to_serial_end, BUF_SIZE,
+                                     local_echo_buf, &local_echo_end,
+                                     BUF_SIZE);
+                }
+                else
+                {
+                    read_buffer(STDIN_FILENO, stdin_to_serial_buf,
+                                &stdin_to_serial_end, BUF_SIZE);
+                }
             }
             /* Read from the serial port if possible */
             if (serial_read_index >= 0 &&
@@ -262,7 +310,7 @@ void interactive(int fd)
 int main(int argc, char *argv[])
 {
     struct termios tio;
-    int baud = 115200, baudCode, optionIndex;
+    int baud = 115200, baudCode, optionIndex, local_echo = 0;
     int fd, c, cflags, mask, ctsrts = 1, xonxoff = 0, flush = 0;
     char *microcom_env, *logname = NULL, *format = NULL;
     struct option longOptions[] =
@@ -273,6 +321,7 @@ int main(int argc, char *argv[])
         {"flush", 0, 0, 'u'},
         {"help", 0, 0, 'h'},
         {"log", 1, 0, 'l'},
+        {"local-echo", 0, 0, 'L'},
         {"version", 0, 0, 'V'},
         {0, 0, 0, 0}
     };
@@ -285,7 +334,7 @@ int main(int argc, char *argv[])
 
     format = getenv("MICROCOM_FORMAT");
 
-    while ((c = getopt_long(argc, argv, "b:f:F:hl:V",
+    while ((c = getopt_long(argc, argv, "b:f:F:hl:LV",
                             longOptions, &optionIndex)) != -1)
     {
         switch (c)
@@ -328,6 +377,9 @@ int main(int argc, char *argv[])
             exit(1);
         case 'l':
             logname = optarg;
+            break;
+        case 'L':
+            local_echo = 1;
             break;
         case 'u':
             flush = 1;
@@ -401,7 +453,7 @@ int main(int argc, char *argv[])
 
     if (argc - optind == 1)
     {
-        interactive(fd);
+        interactive(fd, local_echo);
         close(fd);
     }
     else
@@ -425,6 +477,7 @@ void help(void)
          "  -F MODE, --flow-control=MODE\n"
          "                          Configure flow control, where MODE is none, hardware,\n"
          "                          xonxoff or both. [hardware]\n"
+         "  -L, --local-echo        Enable local echo\n"
          "  --flush                 Flush I/O at program start\n"
          "  -h, --help              Show help.\n"
          "  -l FILE, --log=FILE     Log input communication to file.");
