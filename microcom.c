@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.11"
+#define VERSION_STRING "microcom version 0.9.12"
 
 #define BUF_SIZE 4096
 
@@ -263,13 +263,14 @@ int main(int argc, char *argv[])
 {
     struct termios tio;
     int baud = 115200, baudCode, optionIndex;
-    int fd, c, cflags, mask, ctsrts = 1, xonxoff = 0;
+    int fd, c, cflags, mask, ctsrts = 1, xonxoff = 0, flush = 0;
     char *microcom_env, *logname = NULL, *format = NULL;
     struct option longOptions[] =
     {
         {"baud", 1, 0, 'b'},
         {"format", 1, 0, 'f'},
         {"flow-control", 1, 0, 'F'},
+        {"flush", 0, 0, 'u'},
         {"help", 0, 0, 'h'},
         {"log", 1, 0, 'l'},
         {"version", 0, 0, 'V'},
@@ -328,6 +329,9 @@ int main(int argc, char *argv[])
         case 'l':
             logname = optarg;
             break;
+        case 'u':
+            flush = 1;
+            break;
         case 'V':
             puts(VERSION_STRING);
             return 0;
@@ -382,6 +386,9 @@ int main(int argc, char *argv[])
     cfsetispeed(&tio, baudCode);
     tcsetattr(fd, TCSAFLUSH, &tio);
 
+    if (flush)
+        tcflush(fd, TCIOFLUSH);
+
     if (logname)
     {
         g_logfile = fopen(logname, "a");
@@ -419,6 +426,7 @@ void help(void)
          "  -F MODE, --flow-control=MODE\n"
          "                          Configure flow control, where MODE is none, hardware,\n"
          "                          xonxoff or both. [hardware]\n"
+         "  --flush                 Flush I/O at program start\n"
          "  -h, --help              Show help.\n"
          "  -l FILE, --log=FILE     Log input communication to file.");
 }
