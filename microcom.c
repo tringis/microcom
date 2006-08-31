@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.10"
+#define VERSION_STRING "microcom version 0.9.11"
 
 #define BUF_SIZE 4096
 
@@ -175,6 +175,7 @@ void interactive(int fd)
         if (isatty(0))
             tcsetattr(0, TCSAFLUSH, &g_saved_stdin_attr);
         puts("Bye!");
+        tcflush(fd, TCIOFLUSH); /* Prevent close() from blocking */
         return;
     }
 
