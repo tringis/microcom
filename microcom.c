@@ -49,9 +49,9 @@ void help(void);
 int baud2code(int baud);
 int parse_format(const char *format, int *mask);
 void write_buffer(int fd, const char *buf, int *pos, int *end);
-void read_buffer(int fd, char *buf, int *end, int buf_size);
-void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
-                      char *echo_buf, int *echo_end, int echo_buf_size);
+int read_buffer(int fd, char *buf, int *end, int buf_size);
+int read_buffer_echo(int fd, char *buf, int *end, int buf_size,
+                     char *echo_buf, int *echo_end, int echo_buf_size);
 
 static const UART_BaudTable_t sgUART_BaudTable[] = {
     {      50,      B50 },
@@ -139,7 +139,7 @@ void write_buffer(int fd, const char *buf, int *pos, int *end)
     }
 }
 
-void read_buffer(int fd, char *buf, int *end, int buf_size)
+int read_buffer(int fd, char *buf, int *end, int buf_size)
 {
     int n;
 
@@ -149,8 +149,12 @@ void read_buffer(int fd, char *buf, int *end, int buf_size)
         fprintf(stderr, "Read error [%s]", strerror(errno));
         exit(1);
     }
+    else if (n == 0)
+        return 0;
     else if (n > 0)
         *end += n;
+
+    return 1;
 }
 
 static int minimum(int x, int y)
@@ -158,8 +162,8 @@ static int minimum(int x, int y)
     return y < x ? y : x;
 }
 
-void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
-                      char *echo_buf, int *echo_end, int echo_buf_size)
+int read_buffer_echo(int fd, char *buf, int *end, int buf_size,
+                     char *echo_buf, int *echo_end, int echo_buf_size)
 {
     int n;
 
@@ -170,6 +174,8 @@ void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
         fprintf(stderr, "Read error [%s]", strerror(errno));
         exit(1);
     }
+    else if (n == 0)
+        return 0;
     else if (n > 0)
     {
         int i;
@@ -182,6 +188,8 @@ void read_buffer_echo(int fd, char *buf, int *end, int buf_size,
         *end += n;
         *echo_end += n;
     }
+
+    return 1;
 }
 
 void interactive(int fd, int local_echo)
@@ -193,7 +201,7 @@ void interactive(int fd, int local_echo)
     int stdin_to_serial_pos = 0, stdin_to_serial_end = 0;
     char local_echo_buf[BUF_SIZE];
     int local_echo_pos = 0, local_echo_end = 0;
-    int status;
+    int status, stdin_open = 1;
 
     if (isatty(0))
     {
@@ -230,27 +238,28 @@ void interactive(int fd, int local_echo)
             stdout_write_index = n++;
         }
         /* Anything to write to the serial port? */
-        if (stdin_to_serial_end - stdin_to_serial_pos > 0)
+        if (fd >= 0 && stdin_to_serial_end - stdin_to_serial_pos > 0)
         {
             fds[n].fd = fd;
             fds[n].events = POLLOUT;
             serial_write_index = n++;
         }
         /* Any space to read from stdin? */
-        if (stdin_to_serial_end < BUF_SIZE)
+        if (fd >= 0 && stdin_open && stdin_to_serial_end < BUF_SIZE)
         {
             fds[n].fd = STDIN_FILENO;
             fds[n].events = POLLIN;
             stdin_read_index = n++;
         }
         /* Any space to read from the serial port? */
-        if (serial_to_stdout_end < BUF_SIZE)
+        if (fd >= 0 && serial_to_stdout_end < BUF_SIZE)
         {
             fds[n].fd = fd;
             fds[n].events = POLLIN;
             serial_read_index = n++;
         }
-        assert(n > 0);
+        if (n == 0)
+            break;
 
         status = poll(fds, n, -1);
         if (status == -1)
@@ -283,28 +292,40 @@ void interactive(int fd, int local_echo)
             if (stdin_read_index >= 0 &&
                 fds[stdin_read_index].revents & (POLLIN | POLLERR))
             {
+                int ok;
+
                 if (local_echo)
                 {
-                    read_buffer_echo(STDIN_FILENO, stdin_to_serial_buf,
-                                     &stdin_to_serial_end, BUF_SIZE,
-                                     local_echo_buf, &local_echo_end,
-                                     BUF_SIZE);
+                    ok = read_buffer_echo(STDIN_FILENO, stdin_to_serial_buf,
+                                          &stdin_to_serial_end, BUF_SIZE,
+                                          local_echo_buf, &local_echo_end,
+                                          BUF_SIZE);
                 }
                 else
                 {
-                    read_buffer(STDIN_FILENO, stdin_to_serial_buf,
-                                &stdin_to_serial_end, BUF_SIZE);
+                    ok = read_buffer(STDIN_FILENO, stdin_to_serial_buf,
+                                     &stdin_to_serial_end, BUF_SIZE);
                 }
+                if (!ok)
+                    stdin_open = 0;
             }
             /* Read from the serial port if possible */
             if (serial_read_index >= 0 &&
                 fds[serial_read_index].revents & (POLLIN | POLLERR))
             {
-                read_buffer(fd, serial_to_stdout_buf, &serial_to_stdout_end,
-                            BUF_SIZE);
+                if (!read_buffer(fd, serial_to_stdout_buf,
+                                 &serial_to_stdout_end,
+                                 BUF_SIZE))
+                {
+                    close(fd);
+                    fd = -1;
+                }
             }
         }
     }
+
+    if (isatty(0))
+        tcsetattr(0, TCSAFLUSH, &g_saved_stdin_attr);
 }
 
 int main(int argc, char *argv[])
@@ -452,10 +473,7 @@ int main(int argc, char *argv[])
     }
 
     if (argc - optind == 1)
-    {
         interactive(fd, local_echo);
-        close(fd);
-    }
     else
     {
         fcntl(fd, F_SETFL, 0); /* Make it blocking again */
