@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
                 ctsrts = 0;
                 xonxoff = 0;
             }
-            else if (strcasecmp(optarg, "hardware") == 0)
+            else if (strcasecmp(optarg, "ctsrts") == 0)
             {
                 ctsrts = 1;
                 xonxoff = 0;
@@ -493,12 +493,13 @@ void help(void)
          "  -f FORMAT, --format=FORMAT\n"
          "                          Line format as a three character combination. [N81]\n"
          "  -F MODE, --flow-control=MODE\n"
-         "                          Configure flow control, where MODE is none, hardware,\n"
-         "                          xonxoff or both. [hardware]\n"
-         "  -L, --local-echo        Enable local echo\n"
+         "                          Configure flow control, where MODE is none, ctsrts,\n"
+         "                          xonxoff or both. [ctsrts]\n"
          "  --flush                 Flush I/O at program start\n"
          "  -h, --help              Show help.\n"
-         "  -l FILE, --log=FILE     Log input communication to file.");
+         "  -L, --local-echo        Enable local echo\n"
+         "  -l FILE, --log=FILE     Log input communication to file.\n"
+         "  -V, --version           Show version.");
 }
 
 int baud2code(int baud)
