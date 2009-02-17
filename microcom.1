@@ -24,7 +24,7 @@ SIGINT. This is normally done by pressing control-C.
 .SH OPTIONS
 .IP "-b \fIbaud\fR, --baud=\fIbaud"
 Set the baud rate. The default is 115200 baud.
-.IP "-f \fIformat\fR, --baud=\fIformat"
+.IP "-f \fIformat\fR, --format=\fIformat"
 Set the line format. The format is specified by a three character
 string, where the first character determines the parity, the second
 determines the number of data bits, and the third determines the
@@ -36,15 +36,25 @@ for odd parity, and
 .B N
 for no parity. The default format is
 .BR N81 .
-.IP "-F, --no-flow"
-Disable hardware (CTS/RTS) flow control.
+.IP "-F mode, --flow-control=mode"
+Configure flow control. The mode is one of
+.B
+none
+for no flow control,
+.B ctsrts
+for CTS/RTS flow control,
+.B xonxoff
+for XON/XOFF flow control, or
+.B both
+for both CTS/RTS and XON/XOFF flow control.  The default mode is
+.BR ctsrts .
+.IP "--flush"
+Flush I/O at program start.
 .IP "-h, --help"
 Print a summary of the command-line options on the standard output and
 exit.
-.IP "-p \fIus\fR, --pause=\fIus"
-Pause for
-.I us
-microseconds between all characters sent to the serial port.
+.IP "-L, --local-echo"
+Enable local echo.
 .IP "-l \fIfile\fR, --log=\fIfile\fR"
 Log input communication to file.
 .IP "-V, --version"
@@ -52,17 +62,17 @@ Display the
 .B microcom
 version on standard output and exit.
 .SH EXAMPLES
-To connect to /dev/ttyS0 at 115200 baud with hardware flow control:
+To connect to /dev/ttyS0 at 115200 baud with CTS/RTS flow control:
 .IP
 microcom /dev/ttyS0
 .LP
 To connect to /dev/ttyS0 at 9600 baud with no flow control:
 .IP
-microcom -b 9600 -F /dev/ttyS0
+microcom -b 9600 -F none /dev/ttyS0
 .LP
 To send the file foo.bar on the serial port at 38400 baud:
 .IP
-microcom -b 38400 -F /dev/ttyS0 cat foo.bar
+microcom -b 38400 /dev/ttyS0 cat foo.bar
 .LP
 This works since the standard output of the
 .I cat
@@ -74,6 +84,6 @@ possible errors.
 .SH BUGS
 To be discovered...
 .SH AUTHOR
-Tobias Ringstrom <tobias@ringstrom.mine.nu>
+Tobias Ringström <tobias@ringis.se>
 .SH "SEE ALSO"
 .BR minicom (1)
