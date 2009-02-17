@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define VERSION_STRING "microcom version 0.9.13"
+#define VERSION_STRING "microcom version 1.0"
 
 #define BUF_SIZE 4096
 
