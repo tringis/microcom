@@ -1,6 +1,6 @@
 AC_PREREQ([2.63])
 AC_INIT([microcom], [development], [tobias@ringis.se])
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 dnl stop configure from automagically running automake
 AM_MAINTAINER_MODE
 AC_PROG_CC
