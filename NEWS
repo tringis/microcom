@@ -1,0 +1,4 @@
+Major changes between microcom 1.0 and microcom 1.1
+---------------------------------------------------
+
+* Fix end of file detection.
