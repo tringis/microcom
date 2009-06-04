@@ -271,8 +271,7 @@ void interactive(int fd, int local_echo)
         else if (status > 0)
         {
             /* Write to stdout if possible */
-            if (stdout_write_index >= 0 &&
-                fds[stdout_write_index].revents & (POLLOUT | POLLERR))
+            if (stdout_write_index >= 0 && fds[stdout_write_index].revents)
             {
                 write_buffer(STDOUT_FILENO, local_echo_buf,
                              &local_echo_pos, &local_echo_end);
@@ -280,16 +279,14 @@ void interactive(int fd, int local_echo)
                              &serial_to_stdout_pos, &serial_to_stdout_end);
             }
             /* Write to the serial port if possible */
-            if (serial_write_index >= 0 &&
-                fds[serial_write_index].revents & (POLLOUT | POLLERR))
+            if (serial_write_index >= 0 && fds[serial_write_index].revents)
             {
                 write_buffer(fd, stdin_to_serial_buf,
                              &stdin_to_serial_pos, &stdin_to_serial_end);
             }
 
             /* Read from stdin port if possible */
-            if (stdin_read_index >= 0 &&
-                fds[stdin_read_index].revents & (POLLIN | POLLERR))
+            if (stdin_read_index >= 0 && fds[stdin_read_index].revents)
             {
                 int ok;
 
@@ -309,8 +306,7 @@ void interactive(int fd, int local_echo)
                     stdin_open = 0;
             }
             /* Read from the serial port if possible */
-            if (serial_read_index >= 0 &&
-                fds[serial_read_index].revents & (POLLIN | POLLERR))
+            if (serial_read_index >= 0 && fds[serial_read_index].revents)
             {
                 if (!read_buffer(fd, serial_to_stdout_buf,
                                  &serial_to_stdout_end,
@@ -456,7 +452,7 @@ int main(int argc, char *argv[])
     tio.c_cflag |= cflags;
     cfsetospeed(&tio, baudCode);
     cfsetispeed(&tio, baudCode);
-    tcsetattr(fd, TCSAFLUSH, &tio);
+    tcsetattr(fd, TCSANOW, &tio);
 
     if (flush)
         tcflush(fd, TCIOFLUSH);
