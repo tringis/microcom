@@ -42,7 +42,7 @@ typedef struct UART_BaudTable {
 
 jmp_buf g_env;
 struct termios g_saved_stdin_attr;
-FILE *g_logfile;
+int g_logfd = -1;
 
 void help(void);
 int baud2code(int baud);
@@ -115,6 +115,23 @@ static const UART_BaudTable_t sgUART_BaudTable[] = {
 void signal_handler(int signo)
 {
     longjmp(g_env, signo);
+}
+
+ssize_t safe_write(int fd, const void *buf, size_t count)
+{
+    size_t left = count;
+    ssize_t n;
+
+    while (left > 0)
+    {
+        n = write(fd, buf, left);
+        if (n < 0)
+            return -1;
+        left -= (size_t)n;
+        buf += n;
+    }
+
+    return count;
 }
 
 void write_buffer(int fd, const char *buf, int *pos, int *end)
@@ -288,7 +305,7 @@ void interactive(int fd, int local_echo)
             /* Read from stdin port if possible */
             if (stdin_read_index >= 0 && fds[stdin_read_index].revents)
             {
-                int ok;
+                int ok, begin = stdin_to_serial_end;
 
                 if (local_echo)
                 {
@@ -302,18 +319,45 @@ void interactive(int fd, int local_echo)
                     ok = read_buffer(STDIN_FILENO, stdin_to_serial_buf,
                                      &stdin_to_serial_end, BUF_SIZE);
                 }
-                if (!ok)
+                if (ok)
+                {
+                    if (g_logfd != -1)
+                    {
+                        int end = stdin_to_serial_end;
+
+                        if (safe_write(g_logfd, stdin_to_serial_buf + begin,
+                                       end - begin) == -1)
+                        {
+                            fprintf(stderr, "Log file write error [%s]",
+                                    strerror(errno));
+                        }
+                    }
+                }
+                else
                     stdin_open = 0;
             }
             /* Read from the serial port if possible */
             if (serial_read_index >= 0 && fds[serial_read_index].revents)
             {
+                int begin = serial_to_stdout_end;
+
                 if (!read_buffer(fd, serial_to_stdout_buf,
                                  &serial_to_stdout_end,
                                  BUF_SIZE))
                 {
                     close(fd);
                     fd = -1;
+                }
+                if (g_logfd != -1)
+                {
+                    int end = serial_to_stdout_end;
+
+                    if (safe_write(g_logfd, serial_to_stdout_buf + begin,
+                                   end - begin) == -1)
+                    {
+                        fprintf(stderr, "Log file write error [%s]",
+                                strerror(errno));
+                    }
                 }
             }
         }
@@ -457,18 +501,20 @@ int main(int argc, char *argv[])
     if (flush)
         tcflush(fd, TCIOFLUSH);
 
-    if (logname)
-    {
-        g_logfile = fopen(logname, "a");
-        if (!g_logfile)
-        {
-            fprintf(stderr, "Cannot open log file %s for writing\n", logname);
-            return 1;
-        }
-    }
-
     if (argc - optind == 1)
+    {
+        if (logname)
+        {
+            g_logfd = open(logname, O_WRONLY | O_APPEND | O_CREAT, 0666);
+            if (g_logfd == -1)
+            {
+                fprintf(stderr, "Cannot open log file `%s' for writing\n",
+                        logname);
+                return 1;
+            }
+        }
         interactive(fd, local_echo);
+    }
     else
     {
         fcntl(fd, F_SETFL, 0); /* Make it blocking again */
