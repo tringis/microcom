@@ -43,7 +43,6 @@ typedef struct UART_BaudTable {
 jmp_buf g_env;
 struct termios g_saved_stdin_attr;
 int g_logfd = -1;
-int g_log_html;
 
 void help(void);
 int baud2code(int baud);
