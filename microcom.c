@@ -43,6 +43,7 @@ typedef struct UART_BaudTable {
 jmp_buf g_env;
 struct termios g_saved_stdin_attr;
 int g_logfd = -1;
+int g_log_html;
 
 void help(void);
 int baud2code(int baud);
@@ -171,6 +172,18 @@ int read_buffer(int fd, char *buf, int *end, int buf_size)
         *end += n;
 
     return 1;
+}
+
+static void log_buffer(char *buf, int buf_size)
+{
+    if (g_logfd == -1)
+        return;
+
+    if (safe_write(g_logfd, buf, buf_size) == -1)
+    {
+        fprintf(stderr, "Log file write error [%s]", strerror(errno));
+        exit(1);
+    }
 }
 
 static int minimum(int x, int y)
@@ -321,17 +334,8 @@ void interactive(int fd, int local_echo)
                 }
                 if (ok)
                 {
-                    if (g_logfd != -1)
-                    {
-                        int end = stdin_to_serial_end;
-
-                        if (safe_write(g_logfd, stdin_to_serial_buf + begin,
-                                       end - begin) == -1)
-                        {
-                            fprintf(stderr, "Log file write error [%s]",
-                                    strerror(errno));
-                        }
-                    }
+                    log_buffer(stdin_to_serial_buf + begin,
+                               stdin_to_serial_end - begin);
                 }
                 else
                     stdin_open = 0;
@@ -350,14 +354,8 @@ void interactive(int fd, int local_echo)
                 }
                 if (g_logfd != -1)
                 {
-                    int end = serial_to_stdout_end;
-
-                    if (safe_write(g_logfd, serial_to_stdout_buf + begin,
-                                   end - begin) == -1)
-                    {
-                        fprintf(stderr, "Log file write error [%s]",
-                                strerror(errno));
-                    }
+                    log_buffer(serial_to_stdout_buf + begin,
+                               serial_to_stdout_end - begin);
                 }
             }
         }
