@@ -344,17 +344,17 @@ void interactive(int fd, int local_echo)
             {
                 int begin = serial_to_stdout_end;
 
-                if (!read_buffer(fd, serial_to_stdout_buf,
-                                 &serial_to_stdout_end,
-                                 BUF_SIZE))
-                {
-                    close(fd);
-                    fd = -1;
-                }
-                if (g_logfd != -1)
+                if (read_buffer(fd, serial_to_stdout_buf,
+                                &serial_to_stdout_end,
+                                BUF_SIZE))
                 {
                     log_buffer(serial_to_stdout_buf + begin,
                                serial_to_stdout_end - begin);
+                }
+                else
+                {
+                    close(fd);
+                    fd = -1;
                 }
             }
         }
