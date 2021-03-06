@@ -138,6 +138,9 @@ void write_buffer(int fd, const char *buf, int *pos, int *end)
 {
     int n;
 
+    if (*pos == *end)
+        return;
+
     n = write(fd, buf + *pos, *end - *pos);
     if (n < 0 && errno != EINTR && errno != EAGAIN)
     {
